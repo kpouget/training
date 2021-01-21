@@ -1,3 +1,5 @@
+#! /usr/bin/python3
+
 import sys
 import subprocess
 import os
@@ -78,6 +80,15 @@ def main():
 
     processes = []
 
+    nvidia_smi_l = subprocess.check_output("nvidia-smi -L", shell=True)
+
+    mig_uids = [l.split("UUID: ")[1][:-1] for l in nvidia_smi_l.split("\n") if "MIG" in l]
+
+    if args.nproc_per_node != len(mig_uids):
+        print(f"Got --nproc_per_node={args.nproc_per_node} and {len(mig_uids)} MIG devices ...")
+        print(nvidia_smi_l)
+        exit(1)
+
     for local_rank in range(0, args.nproc_per_node):
         # each process's rank
         dist_rank = args.nproc_per_node * args.node_rank + local_rank
@@ -100,12 +111,14 @@ def main():
             numactlargs += [ "--membind={}".format(memnode) ]
 
         # spawn the processes
-        cmd = [ "/usr/bin/numactl" ] \
+        cmd = [ #"echo",
+                "/usr/bin/env", "CUDA_VISIBLE_DEVICES", mig_uids[local_rank],
+                "/usr/bin/numactl" ] \
             + numactlargs \
             + [ sys.executable,
                 "-u",
                 args.training_script,
-                "--local_rank={}".format(local_rank)
+                "--local_rank=0"
               ] \
             + args.training_script_args
 
@@ -118,4 +131,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
